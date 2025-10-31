@@ -26,6 +26,13 @@ dependencies:
   hive_flutter: ^1.1.0
   flutter_riverpod: ^2.6.1
   just_audio_windows: ^0.2.2
+  http: ^0.13.5
+  url_launcher: ^6.1.10
+  file_picker: ^10.3.3
+  path: ^1.8.2
+  share_plus: ^7.0.1
+  ffmpeg_kit_flutter_new: ^4.1.0
+  logger: ^1.1.1
   
 
 dev_dependencies:

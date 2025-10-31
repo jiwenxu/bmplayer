@@ -7,6 +7,8 @@ import '../providers/audio_provider.dart';
 import '../widgets/audio_controls.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/playlist_widget.dart';
+import 'import_screen.dart';
+import 'settings_screen.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
   const PlayerScreen({super.key});
@@ -59,6 +61,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         title: const Text('音乐播放器'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.file_download),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ImportScreen()),
+              );
+            },
+            tooltip: '导入音频',
+          ),
           // 添加清空播放列表按钮
           IconButton(
             icon: const Icon(Icons.clear_all),
@@ -66,6 +78,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               final service = ref.read(audioPlayerServiceProvider);
               service.clearPlaylist();
             },
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsScreen()),
+              );
+            },
+            tooltip: '设置',
           ),
         ],
       ),

@@ -1,5 +1,8 @@
 // lib/data/services/hive_storage_service.dart
+import 'dart:io';
+
 import 'package:hive/hive.dart';
+import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
 import '../../domain/models/audio_info.dart';
@@ -12,11 +15,28 @@ class HiveStorageService {
   late Box<AudioInfo> _playlistBox;
   late Box<dynamic> _settingsBox;
   late Box<dynamic> _cacheInfoBox;
+  late Directory _storageRoot;
 
   // 初始化 Hive
   Future<void> init() async {
-    final appDocumentDir = await getApplicationDocumentsDirectory();
-    Hive.init(appDocumentDir.path);
+    if (Platform.isWindows) {
+      final exeFile = File(Platform.resolvedExecutable);
+      Directory baseDir = exeFile.parent.absolute;
+      final exeName = path.basename(exeFile.path).toLowerCase();
+      if (exeName == 'flutter_tester.exe' || exeName == 'dart.exe') {
+        baseDir = Directory.current.absolute;
+      }
+      _storageRoot = Directory(path.join(baseDir.path, 'bmplayer_data'));
+    } else {
+      final appDocumentDir = await getApplicationDocumentsDirectory();
+      _storageRoot = Directory(path.join(appDocumentDir.path, 'bmplayer_data'));
+    }
+
+    if (!_storageRoot.existsSync()) {
+      await _storageRoot.create(recursive: true);
+    }
+
+    Hive.init(_storageRoot.path);
 
     // 注册适配器
     if (!Hive.isAdapterRegistered(AudioInfoAdapter().typeId)) {
@@ -113,6 +133,8 @@ class HiveStorageService {
     await _settingsBox.clear();
     await _cacheInfoBox.clear();
   }
+
+  Directory get storageRoot => _storageRoot;
 
   AudioInfo _cloneAudio(AudioInfo audio) {
     return AudioInfo(

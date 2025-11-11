@@ -1,6 +1,5 @@
 // lib/data/services/cache_manager_service.dart
 import 'dart:io';
-import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 import '../services/hive_storage_service.dart';
@@ -14,8 +13,8 @@ class CacheManagerService {
 
   // 初始化缓存目录
   Future<void> init() async {
-    final appDocDir = await getApplicationDocumentsDirectory();
-    _cacheDirectory = Directory(path.join(appDocDir.path, 'audio_cache'));
+    final baseDir = _storageService.storageRoot;
+    _cacheDirectory = Directory(path.join(baseDir.path, 'audio_cache'));
     if (!_cacheDirectory!.existsSync()) {
       await _cacheDirectory!.create(recursive: true);
     }

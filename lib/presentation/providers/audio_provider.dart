@@ -1,4 +1,6 @@
 // lib/presentation/providers/audio_provider.dart
+import 'dart:io';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,6 +8,7 @@ import 'package:just_audio/just_audio.dart';
 import '../../data/services/android_audio_service.dart';
 import '../../data/services/audio_player_service.dart';
 import '../../data/services/file_import_service.dart';
+import '../../data/services/native_integration_service.dart';
 import '../../domain/models/audio_info.dart';
 import '../../data/services/bilibili_parser_service.dart';
 import '../../domain/models/bilibili_audio_info.dart';
@@ -18,12 +21,18 @@ final audioPlayerServiceProvider = ChangeNotifierProvider<AudioPlayerService>((
   final storageService = ref.watch(hiveStorageServiceProvider);
   final handler = ref.watch(audioHandlerProvider) as AndroidAudioHandler;
   final service = AudioPlayerService(handler, storageService);
+  NativeIntegrationService? nativeIntegration;
+  if (Platform.isWindows) {
+    nativeIntegration = NativeIntegrationService(() => service);
+    nativeIntegration.init();
+  }
   // 初始化时加载播放列表
   WidgetsBinding.instance.addPostFrameCallback((_) {
     service.loadPlaylistFromStorage();
   });
 
   ref.onDispose(() {
+    nativeIntegration?.dispose();
     service.dispose();
   });
   return service;

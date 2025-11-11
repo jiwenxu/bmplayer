@@ -17,6 +17,8 @@ class AudioPlayerService with ChangeNotifier {
   bool _autoDownload = true;
 
   StreamSubscription<int?>? _indexSubscription;
+  StreamSubscription<PlayerState>? _playerStateSubscription;
+  bool _isPlaying = false;
 
   Stream<PlayerState> get playerStateStream => _audioHandler.playerStateStream;
   Stream<Duration?> get durationStream => _audioHandler.durationStream;
@@ -25,6 +27,7 @@ class AudioPlayerService with ChangeNotifier {
   List<AudioInfo> get playlist => List.unmodifiable(_playlist);
   bool get autoDownload => _autoDownload;
   int get currentIndex => _currentIndex;
+  bool get isPlaying => _isPlaying;
   AudioInfo? get currentAudio =>
       _playlist.isEmpty ? null : _playlist[_currentIndex];
 
@@ -39,6 +42,10 @@ class AudioPlayerService with ChangeNotifier {
         _currentIndex = clamped;
         notifyListeners();
       }
+    });
+    _playerStateSubscription =
+        _audioHandler.playerStateStream.listen((state) {
+      _isPlaying = state.playing;
     });
     _loadSettings();
   }
@@ -152,9 +159,18 @@ class AudioPlayerService with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> togglePlayPause() async {
+    if (_isPlaying) {
+      await pause();
+    } else {
+      await play();
+    }
+  }
+
   @override
   Future<void> dispose() async {
     await _indexSubscription?.cancel();
+    await _playerStateSubscription?.cancel();
     super.dispose();
   }
 }

@@ -1,7 +1,9 @@
 // lib/presentation/providers/audio_provider.dart
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
+import '../../data/services/android_audio_service.dart';
 import '../../data/services/audio_player_service.dart';
 import '../../data/services/file_import_service.dart';
 import '../../domain/models/audio_info.dart';
@@ -14,17 +16,21 @@ final audioPlayerServiceProvider = ChangeNotifierProvider<AudioPlayerService>((
   ref,
 ) {
   final storageService = ref.watch(hiveStorageServiceProvider);
-  final cacheService = ref.watch(cacheManagerServiceProvider);
-  final service = AudioPlayerService(storageService, cacheService);
+  final handler = ref.watch(audioHandlerProvider) as AndroidAudioHandler;
+  final service = AudioPlayerService(handler, storageService);
   // 初始化时加载播放列表
   WidgetsBinding.instance.addPostFrameCallback((_) {
     service.loadPlaylistFromStorage();
   });
-  
+
   ref.onDispose(() {
     service.dispose();
   });
   return service;
+});
+
+final audioHandlerProvider = Provider<AudioHandler>((ref) {
+  throw UnimplementedError('audioHandlerProvider 必须在应用入口处覆盖');
 });
 
 final bilibiliParserServiceProvider = Provider<BilibiliParserService>((ref) {

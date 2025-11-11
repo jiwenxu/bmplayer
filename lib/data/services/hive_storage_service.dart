@@ -1,6 +1,7 @@
 // lib/data/services/hive_storage_service.dart
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
+
 import '../../domain/models/audio_info.dart';
 
 class HiveStorageService {
@@ -18,7 +19,9 @@ class HiveStorageService {
     Hive.init(appDocumentDir.path);
 
     // 注册适配器
-    Hive.registerAdapter(AudioInfoAdapter());
+    if (!Hive.isAdapterRegistered(AudioInfoAdapter().typeId)) {
+      Hive.registerAdapter(AudioInfoAdapter());
+    }
 
     // 打开 Boxes
     _playlistBox = await Hive.openBox<AudioInfo>(_playlistBoxName);
@@ -30,16 +33,16 @@ class HiveStorageService {
   Future<void> savePlaylist(List<AudioInfo> playlist) async {
     await _playlistBox.clear();
     for (final audio in playlist) {
-      await _playlistBox.add(audio);
+      await _playlistBox.add(_cloneAudio(audio));
     }
   }
 
   List<AudioInfo> getPlaylist() {
-    return _playlistBox.values.toList();
+    return _playlistBox.values.map(_cloneAudio).toList();
   }
 
   Future<void> addToPlaylist(AudioInfo audio) async {
-    await _playlistBox.add(audio);
+    await _playlistBox.add(_cloneAudio(audio));
   }
 
   Future<void> removeFromPlaylist(int index) async {
@@ -47,7 +50,7 @@ class HiveStorageService {
   }
 
   Future<void> updateAudioInfo(int index, AudioInfo audio) async {
-    await _playlistBox.putAt(index, audio);
+    await _playlistBox.putAt(index, _cloneAudio(audio));
   }
 
   Future<void> clearPlaylist() async {
@@ -109,6 +112,19 @@ class HiveStorageService {
     await _playlistBox.clear();
     await _settingsBox.clear();
     await _cacheInfoBox.clear();
+  }
+
+  AudioInfo _cloneAudio(AudioInfo audio) {
+    return AudioInfo(
+      id: audio.id,
+      title: audio.title,
+      audioUrl: audio.audioUrl,
+      coverUrl: audio.coverUrl,
+      audioPath: audio.audioPath,
+      duration: audio.duration,
+      artist: audio.artist,
+      addedTime: audio.addedTime,
+    );
   }
 
   // 关闭 Hive

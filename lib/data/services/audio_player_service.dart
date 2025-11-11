@@ -1,25 +1,26 @@
-// lib/data/services/audio_player_service.dart
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
+
 import '../../domain/models/audio_info.dart';
-import 'cache_manager_service.dart';
+import 'android_audio_service.dart';
 import 'hive_storage_service.dart';
 
 class AudioPlayerService with ChangeNotifier {
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  final AndroidAudioHandler _audioHandler;
   final HiveStorageService _storageService;
-  final CacheManagerService _cacheService;
 
   final List<AudioInfo> _playlist = [];
   int _currentIndex = 0;
   bool _autoDownload = true;
 
-  // 播放状态流
-  Stream<PlayerState> get playerStateStream => _audioPlayer.playerStateStream;
-  Stream<Duration?> get durationStream => _audioPlayer.durationStream;
-  Stream<Duration> get positionStream => _audioPlayer.positionStream;
+  StreamSubscription<int?>? _indexSubscription;
+
+  Stream<PlayerState> get playerStateStream => _audioHandler.playerStateStream;
+  Stream<Duration?> get durationStream => _audioHandler.durationStream;
+  Stream<Duration> get positionStream => _audioHandler.positionStream;
 
   List<AudioInfo> get playlist => List.unmodifiable(_playlist);
   bool get autoDownload => _autoDownload;
@@ -27,18 +28,21 @@ class AudioPlayerService with ChangeNotifier {
   AudioInfo? get currentAudio =>
       _playlist.isEmpty ? null : _playlist[_currentIndex];
 
-  AudioPlayerService(this._storageService, this._cacheService) {
-    // 监听播放完成事件，自动播放下一首
-    _audioPlayer.playerStateStream.listen((state) {
-      if (state.processingState == ProcessingState.completed) {
-        next();
+  AudioPlayerService(
+    this._audioHandler,
+    this._storageService,
+  ) {
+    _indexSubscription = _audioHandler.currentIndexStream.listen((index) {
+      if (index == null || _playlist.isEmpty) return;
+      final clamped = index.clamp(0, _playlist.length - 1);
+      if (clamped != _currentIndex) {
+        _currentIndex = clamped;
+        notifyListeners();
       }
     });
-    // 加载设置
     _loadSettings();
   }
 
-  // 从存储加载播放列表
   Future<void> loadPlaylistFromStorage() async {
     final storedPlaylist = _storageService.getPlaylist();
     if (storedPlaylist.isNotEmpty) {
@@ -46,7 +50,6 @@ class AudioPlayerService with ChangeNotifier {
     }
   }
 
-  // 加载设置
   void _loadSettings() {
     _autoDownload = _storageService.getSetting(
       'auto_download',
@@ -54,133 +57,104 @@ class AudioPlayerService with ChangeNotifier {
     );
   }
 
-  // 保存设置
-  // Future<void> _saveSettings() async {
-  //   await _storageService.saveSetting('auto_download', _autoDownload);
-  // }
-
-  // 初始化播放列表
   Future<void> setPlaylist(List<AudioInfo> audios, {int startIndex = 0}) async {
-    _playlist.clear();
-    _playlist.addAll(audios);
-    _currentIndex = audios.isEmpty ? 0 : startIndex.clamp(0, audios.length - 1);
+    _playlist
+      ..clear()
+      ..addAll(audios);
+    _currentIndex =
+        audios.isEmpty ? 0 : startIndex.clamp(0, audios.length - 1);
 
-    // 保存到存储
     await _storageService.savePlaylist(_playlist);
+    notifyListeners();
 
-    notifyListeners(); // 通知监听者状态已更新
-
-    if (audios.isNotEmpty) {
-      await _loadCurrentAudio();
-    }
+    await _audioHandler.setPlaylist(
+      _playlist,
+      startIndex: _currentIndex,
+    );
   }
 
-  // 播放/暂停
-  Future<void> play() async {
-    await _audioPlayer.play();
-  }
+  Future<void> play() => _audioHandler.play();
 
-  Future<void> pause() async {
-    await _audioPlayer.pause();
-  }
+  Future<void> pause() => _audioHandler.pause();
 
-  // 上一首/下一首
   Future<void> next() async {
     if (_playlist.isEmpty) return;
-
-    _currentIndex = (_currentIndex + 1) % _playlist.length;
-    notifyListeners(); // 通知监听者当前索引已更新
-    await _loadCurrentAudio();
-    await play();
+    await _audioHandler.skipToNext();
   }
 
   Future<void> previous() async {
     if (_playlist.isEmpty) return;
-
-    _currentIndex = (_currentIndex - 1 + _playlist.length) % _playlist.length;
-    notifyListeners(); // 通知监听者当前索引已更新
-    await _loadCurrentAudio();
-    await play();
+    await _audioHandler.skipToPrevious();
   }
 
-  // 跳转到指定位置
-  Future<void> seek(Duration position) async {
-    await _audioPlayer.seek(position);
-  }
+  Future<void> seek(Duration position) => _audioHandler.seek(position);
 
-  // 跳转到指定音频
   Future<void> jumpToIndex(int index) async {
     if (index >= 0 && index < _playlist.length) {
       _currentIndex = index;
-      notifyListeners(); // 通知监听者当前索引已更新
-      await _loadCurrentAudio();
-      await play();
+      notifyListeners();
+      await _audioHandler.skipToQueueItem(index);
     }
   }
 
-  // 添加单首音频到播放列表
   Future<void> addToPlaylist(AudioInfo audio) async {
     _playlist.add(audio);
     await _storageService.savePlaylist(_playlist);
-    notifyListeners(); // 通知监听者播放列表已更新
+    await _audioHandler.setPlaylist(
+      _playlist,
+      startIndex: _currentIndex.clamp(0, _playlist.length - 1),
+    );
+    notifyListeners();
   }
 
-  // 从播放列表移除音频
   Future<void> removeFromPlaylist(int index) async {
-    if (index >= 0 && index < _playlist.length) {
-      // 如果移除的是已缓存的音频，可以选择删除缓存文件
-      final removedAudio = _playlist[index];
-      if (removedAudio.isCached) {
-        await File(removedAudio.audioPath!).delete();
+    if (index < 0 || index >= _playlist.length) return;
+
+    final removedAudio = _playlist.removeAt(index);
+    if (removedAudio.isCached && removedAudio.audioPath != null) {
+      final file = File(removedAudio.audioPath!);
+      if (await file.exists()) {
+        await file.delete();
       }
-      _playlist.removeAt(index);
-      // 如果移除的是当前播放的音频，需要调整当前索引
-      if (index == _currentIndex) {
-        _currentIndex = _currentIndex.clamp(0, _playlist.length - 1);
-        if (_playlist.isNotEmpty) {
-          await _loadCurrentAudio();
-        }
-      } else if (index < _currentIndex) {
-        _currentIndex--;
-      }
-      await _storageService.savePlaylist(_playlist);
-      notifyListeners(); // 通知监听者播放列表已更新
     }
+
+    if (_playlist.isEmpty) {
+      _currentIndex = 0;
+      await _audioHandler.setPlaylist(const []);
+    } else {
+      if (index <= _currentIndex) {
+        _currentIndex = (_currentIndex - 1).clamp(0, _playlist.length - 1);
+      }
+      await _audioHandler.setPlaylist(
+        _playlist,
+        startIndex: _currentIndex.clamp(0, _playlist.length - 1),
+      );
+    }
+
+    await _storageService.savePlaylist(_playlist);
+    notifyListeners();
   }
 
-  // 清空播放列表
   Future<void> clearPlaylist() async {
-    _playlist.forEach((audio) {
-      if (audio.isCached) {
-        File(audio.audioPath!).delete();
+    for (final audio in _playlist) {
+      if (audio.isCached && audio.audioPath != null) {
+        final file = File(audio.audioPath!);
+        if (await file.exists()) {
+          await file.delete();
+        }
       }
-    });
+    }
     _playlist.clear();
     _currentIndex = 0;
-    await _audioPlayer.stop();
+    await _audioHandler.stop();
+    await _audioHandler.setPlaylist(const []);
     await _storageService.savePlaylist(_playlist);
-    notifyListeners(); // 通知监听者播放列表已更新
+    notifyListeners();
   }
 
-  // 加载当前音频
-  Future<void> _loadCurrentAudio() async {
-    if (_playlist.isEmpty) return;
-
-    final current = _playlist[_currentIndex];
-    try {
-      final playSource = current.isCached ? current.audioPath! : current.audioUrl;
-      await _audioPlayer.setUrl(playSource);
-    } catch (e) {
-      print('Error loading audio: $e');
-      // 自动跳到下一首
-      await next();
-    }
-  }
-
-  // 释放资源
   @override
   Future<void> dispose() async {
-    await _audioPlayer.dispose();
+    await _indexSubscription?.cancel();
     super.dispose();
   }
 }
